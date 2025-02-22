@@ -35,9 +35,83 @@ web3 = Web3(Web3.HTTPProvider(RPC_URL))
 if not web3.is_connected():
     raise ConnectionError("Failed to connect to RPC URL")
 
-uniswap_v2_router_abi = '[{"inputs":[{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactETHForTokens","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"payable","type":"function"}]'
+uniswap_v2_router_abi = '''
+[
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
+            {"internalType": "address[]", "name": "path", "type": "address[]"},
+            {"internalType": "address", "name": "to", "type": "address"},
+            {"internalType": "uint256", "name": "deadline", "type": "uint256"}
+        ],
+        "name": "swapExactETHForTokens",
+        "outputs": [
+            {"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}
+        ],
+        "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "amountIn", "type": "uint256"},
+            {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
+            {"internalType": "address[]", "name": "path", "type": "address[]"},
+            {"internalType": "address", "name": "to", "type": "address"},
+            {"internalType": "uint256", "name": "deadline", "type": "uint256"}
+        ],
+        "name": "swapExactTokensForETH",
+        "outputs": [
+            {"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    }
+]
+'''
+
+erc20_abi = '''
+[
+    {
+        "constant": true,
+        "inputs": [{"name": "_owner", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "balance", "type": "uint256"}],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "constant": false,
+        "inputs": [
+            {"name": "_spender", "type": "address"},
+            {"name": "_value", "type": "uint256"}
+        ],
+        "name": "approve",
+        "outputs": [{"name": "", "type": "bool"}],
+        "payable": false,
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "constant": true,
+        "inputs": [],
+        "name": "decimals",
+        "outputs": [{"name": "", "type": "uint8"}],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+'''
 
 uniswap_router = web3.eth.contract(address=Web3.to_checksum_address(UNISWAP_V2_ROUTER_ADDRESS), abi=uniswap_v2_router_abi)
+
+def get_token_decimals(token_address):
+    token_contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=erc20_abi)
+    return token_contract.functions.decimals().call()
+
+def format_token_amount(amount, decimals):
+    return amount / (10 ** decimals)
 
 def swap_eth_for_tokens(account, private_key, amount_in_wei, amount_out_min, deadline, token_address):
     path = [web3.to_checksum_address("0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"),
@@ -72,6 +146,58 @@ def swap_eth_for_tokens(account, private_key, amount_in_wei, amount_out_min, dea
         print(f"An error occurred: {e}")
         raise
 
+def swap_tokens_for_eth(account, private_key, token_amount, amount_out_min, deadline, token_address, token_name):
+    path = [web3.to_checksum_address(token_address),
+            web3.to_checksum_address("0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701")]
+
+    gas_price = web3.eth.gas_price
+    gas_limit = 200000 
+
+    try:
+        nonce = web3.eth.get_transaction_count(account.address, "pending")
+
+        token_contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=erc20_abi)
+        approve_txn = token_contract.functions.approve(
+            Web3.to_checksum_address(UNISWAP_V2_ROUTER_ADDRESS),
+            token_amount
+        ).build_transaction({
+            'from': account.address,
+            'gas': 100000,
+            'gasPrice': gas_price,
+            'nonce': nonce,
+            'chainId': CHAIN_ID
+        })
+
+        signed_approve_txn = web3.eth.account.sign_transaction(approve_txn, private_key=private_key)
+        web3.eth.send_raw_transaction(signed_approve_txn.raw_transaction)
+        nonce += 1 
+
+        transaction = uniswap_router.functions.swapExactTokensForETH(
+            token_amount,
+            amount_out_min,
+            path,
+            account.address,
+            deadline
+        ).build_transaction({
+            'from': account.address,
+            'gas': gas_limit,
+            'gasPrice': gas_price,
+            'nonce': nonce,
+            'chainId': CHAIN_ID
+        })
+
+        signed_txn = web3.eth.account.sign_transaction(transaction, private_key=private_key)
+
+        tx_hash = web3.eth.send_raw_transaction(signed_txn.raw_transaction)
+        token_decimals = get_token_decimals(token_address)
+        formatted_amount = format_token_amount(token_amount, token_decimals)
+        print(Fore.CYAN + f"✅ Unswap berhasil {formatted_amount} {token_name} > MONAD")
+        return web3.to_hex(tx_hash)
+
+    except Exception as e:
+        print(f"An error occurred during unswap: {e}")
+        raise
+
 def input_eth_amount():
     try:
         eth_amount = float(input(Fore.CYAN + "Masukan jumlah untuk swap (0.1): "))
@@ -98,8 +224,11 @@ def get_account_balance(account):
     balance = web3.eth.get_balance(account.address)
     return balance
 
-if __name__ == "__main__":
+def get_token_balance(account, token_address):
+    token_contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=erc20_abi)
+    return token_contract.functions.balanceOf(account.address).call()
 
+if __name__ == "__main__":
     while True:
         print(Fore.CYAN + "Masukan token yang ingin di swap:")
         print(Fore.CYAN + "1. YAKI")
@@ -109,15 +238,19 @@ if __name__ == "__main__":
         token_choice = input(Fore.CYAN + "Masukan pilihan (1-4): ")
 
         if token_choice == "1":
+            token_name = "YAKI"
             token_address = TOKEN_ADDRESSES["YAKI"]
             break 
         elif token_choice == "2":
+            token_name = "USDC"
             token_address = TOKEN_ADDRESSES["USDC"]
             break 
         elif token_choice == "3":
+            token_name = "CHOG"
             token_address = TOKEN_ADDRESSES["CHOG"]
             break 
         elif token_choice == "4":
+            token_name = "AIT"
             token_address = TOKEN_ADDRESSES["AIT"]
             break
         else:
@@ -137,7 +270,15 @@ if __name__ == "__main__":
 
     while True:
         tx_hash = swap_eth_for_tokens(account, PRIVATE_KEY, amount_in_wei, 0, int(web3.eth.get_block('latest').timestamp) + 300, token_address)
-        print(Fore.CYAN + f"✅ Swap berhasil {eth_amount} MONAD")
+        print(Fore.CYAN + f"✅ Swap berhasil {eth_amount} MONAD > {token_name}")
+
+        time.sleep(5)
+
+        token_balance = get_token_balance(account, token_address)
+        if token_balance > 0:
+            unswap_amount = int(token_balance * 0.9)  # 90% Unswap
+            if unswap_amount > 0:
+                unswap_tx_hash = swap_tokens_for_eth(account, PRIVATE_KEY, unswap_amount, 0, int(web3.eth.get_block('latest').timestamp) + 300, token_address, token_name)
 
         if should_loop:
             print(Fore.YELLOW + f"🔄️ Menunggu {loop_duration} detik untuk transaksi berikutnya...")
