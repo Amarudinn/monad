@@ -129,7 +129,7 @@ def swap_eth_for_tokens(account, private_key, amount_in_wei, amount_out_min, dea
     path = [web3.to_checksum_address("0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"),
             web3.to_checksum_address(token_address)]
 
-    wait_for_low_gas_price(max_gwei)  # Wait for gas price to be below the user-defined limit
+    wait_for_low_gas_price(max_gwei) 
 
     gas_price = web3.eth.gas_price
 
@@ -164,7 +164,7 @@ def swap_tokens_for_eth(account, private_key, token_amount, amount_out_min, dead
     path = [web3.to_checksum_address(token_address),
             web3.to_checksum_address("0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701")]
 
-    wait_for_low_gas_price(max_gwei)  # Wait for gas price to be below the user-defined limit
+    wait_for_low_gas_price(max_gwei) 
 
     gas_price = web3.eth.gas_price
     gas_limit = 200000 
