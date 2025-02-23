@@ -113,9 +113,23 @@ def get_token_decimals(token_address):
 def format_token_amount(amount, decimals):
     return amount / (10 ** decimals)
 
-def swap_eth_for_tokens(account, private_key, amount_in_wei, amount_out_min, deadline, token_address):
+def wait_for_low_gas_price(max_gwei):
+    while True:
+        gas_price = web3.eth.gas_price
+        gas_price_gwei = web3.from_wei(gas_price, 'gwei')
+        print(Fore.YELLOW + f"Gwei saat ini : {int(gas_price_gwei)} Gwei")
+        if gas_price_gwei <= max_gwei:
+            print(Fore.GREEN + f"Gwei dibawah {int(max_gwei)}. Melanjutkan transaksi.")
+            break
+        else:
+            print(Fore.YELLOW + f"Gwei terlalu tinggi. Menunggu turun di bawah {max_gwei} Gwei...")
+            time.sleep(3)
+
+def swap_eth_for_tokens(account, private_key, amount_in_wei, amount_out_min, deadline, token_address, max_gwei):
     path = [web3.to_checksum_address("0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"),
             web3.to_checksum_address(token_address)]
+
+    wait_for_low_gas_price(max_gwei)  # Wait for gas price to be below the user-defined limit
 
     gas_price = web3.eth.gas_price
 
@@ -146,9 +160,11 @@ def swap_eth_for_tokens(account, private_key, amount_in_wei, amount_out_min, dea
         print(f"An error occurred: {e}")
         raise
 
-def swap_tokens_for_eth(account, private_key, token_amount, amount_out_min, deadline, token_address, token_name):
+def swap_tokens_for_eth(account, private_key, token_amount, amount_out_min, deadline, token_address, token_name, max_gwei):
     path = [web3.to_checksum_address(token_address),
             web3.to_checksum_address("0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701")]
+
+    wait_for_low_gas_price(max_gwei)  # Wait for gas price to be below the user-defined limit
 
     gas_price = web3.eth.gas_price
     gas_limit = 200000 
@@ -214,9 +230,11 @@ def input_looping_choice():
         looping_choice = input(Fore.CYAN + "\nPerlu looping?\n1. Ya\n2. Tidak\nMasukan pilihan (1/2): ")
         if looping_choice == "1":
             loop_duration = int(input(Fore.CYAN + "Berapa lama untuk looping(detik): "))
-            return True, loop_duration
+            max_gwei = float(input(Fore.CYAN + "Masukan batas maksimal Gwei : "))
+            return True, loop_duration, max_gwei
         elif looping_choice == "2":
-            return False, 0
+            max_gwei = float(input(Fore.CYAN + "Masukan batas maksimal Gwei : "))
+            return False, 0, max_gwei
         else:
             print(Fore.RED + "[INFO] Pilihan tidak valid, masukan pilihan 1-2")
 
@@ -258,7 +276,7 @@ if __name__ == "__main__":
 
     eth_amount = input_eth_amount()
 
-    should_loop, loop_duration = input_looping_choice()
+    should_loop, loop_duration, max_gwei = input_looping_choice()
 
     account = web3.eth.account.from_key(PRIVATE_KEY)
 
@@ -269,7 +287,7 @@ if __name__ == "__main__":
         exit()
 
     while True:
-        tx_hash = swap_eth_for_tokens(account, PRIVATE_KEY, amount_in_wei, 0, int(web3.eth.get_block('latest').timestamp) + 300, token_address)
+        tx_hash = swap_eth_for_tokens(account, PRIVATE_KEY, amount_in_wei, 0, int(web3.eth.get_block('latest').timestamp) + 300, token_address, max_gwei)
         print(Fore.CYAN + f"✅ Swap berhasil {eth_amount} MONAD > {token_name}")
 
         time.sleep(5)
@@ -278,7 +296,7 @@ if __name__ == "__main__":
         if token_balance > 0:
             unswap_amount = int(token_balance * 0.9)  # 90% Unswap
             if unswap_amount > 0:
-                unswap_tx_hash = swap_tokens_for_eth(account, PRIVATE_KEY, unswap_amount, 0, int(web3.eth.get_block('latest').timestamp) + 300, token_address, token_name)
+                unswap_tx_hash = swap_tokens_for_eth(account, PRIVATE_KEY, unswap_amount, 0, int(web3.eth.get_block('latest').timestamp) + 300, token_address, token_name, max_gwei)
 
         if should_loop:
             print(Fore.YELLOW + f"🔄️ Menunggu {loop_duration} detik untuk transaksi berikutnya...")
