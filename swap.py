@@ -1,5 +1,6 @@
 import os
 import time
+import random
 from web3 import Web3
 from dotenv import load_dotenv
 from banner import banner
@@ -216,14 +217,19 @@ def swap_tokens_for_eth(account, private_key, token_amount, amount_out_min, dead
 
 def input_eth_amount():
     try:
-        eth_amount = float(input(Fore.CYAN + "Masukan jumlah untuk swap (0.1): "))
-        if eth_amount <= 0:
+        min_eth_amount = float(input(Fore.CYAN + "Masukan jumlah minimum untuk swap (0.001): "))
+        max_eth_amount = float(input(Fore.CYAN + "Masukan jumlah maksimum untuk swap (0.003): "))
+        if min_eth_amount <= 0 or max_eth_amount <= 0:
             raise ValueError("Jumlah Monad harus lebih besar dari 0.000001")
+        if min_eth_amount > max_eth_amount:
+            raise ValueError("Jumlah minimum tidak boleh lebih besar dari jumlah maksimum")
+        if not (min_eth_amount * 1000).is_integer() or not (max_eth_amount * 1000).is_integer():
+            raise ValueError("Jumlah harus dalam kelipatan 0.001")
     except ValueError as e:
         print(f"Error: {e}")
         exit()
 
-    return eth_amount
+    return min_eth_amount, max_eth_amount
 
 def input_looping_choice():
     while True:
@@ -245,6 +251,11 @@ def get_account_balance(account):
 def get_token_balance(account, token_address):
     token_contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=erc20_abi)
     return token_contract.functions.balanceOf(account.address).call()
+
+def generate_random_amount(min_eth_amount, max_eth_amount):
+    # Generate a list of possible values between min and max with a step of 0.001
+    possible_values = [round(min_eth_amount + i * 0.001, 3) for i in range(int((max_eth_amount - min_eth_amount) / 0.001) + 1)]
+    return random.choice(possible_values)
 
 if __name__ == "__main__":
     while True:
@@ -274,19 +285,20 @@ if __name__ == "__main__":
         else:
             print(Fore.RED + "[INFO] Pilihan tidak valid. Silakan pilih 1-4.\n")
 
-    eth_amount = input_eth_amount()
+    min_eth_amount, max_eth_amount = input_eth_amount()
 
     should_loop, loop_duration, max_gwei = input_looping_choice()
 
     account = web3.eth.account.from_key(PRIVATE_KEY)
 
-    amount_in_wei = web3.to_wei(eth_amount, 'ether')
-
-    if get_account_balance(account) < amount_in_wei:
-        print(Fore.RED + f"❌ Saldo monad tidak cukup untuk swap")
-        exit()
-
     while True:
+        eth_amount = generate_random_amount(min_eth_amount, max_eth_amount)
+        amount_in_wei = web3.to_wei(eth_amount, 'ether')
+
+        if get_account_balance(account) < amount_in_wei:
+            print(Fore.RED + f"❌ Saldo monad tidak cukup untuk swap")
+            exit()
+
         tx_hash = swap_eth_for_tokens(account, PRIVATE_KEY, amount_in_wei, 0, int(web3.eth.get_block('latest').timestamp) + 300, token_address, max_gwei)
         print(Fore.CYAN + f"✅ Swap berhasil {eth_amount} MONAD > {token_name}")
 
