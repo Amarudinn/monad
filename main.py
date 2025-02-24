@@ -22,7 +22,7 @@ def main():
         elif pilihan == "3":
             os.system("python stake.py")
         elif pilihan == "4":
-            os.system("python claim-token.py")
+            os.system("python claim-degen.py")
         elif pilihan == "0":
             print(Fore.RED + "Keluar dari program.")
             break
